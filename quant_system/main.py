@@ -110,6 +110,7 @@ def market_observation(frame: pd.DataFrame) -> str:
     latest = frame.iloc[-1]
     close = float(latest["close"])
     ma20, ma60, rsi = latest["MA20"], latest["MA60"], latest["RSI14"]
+    atr = latest["ATR14"]
     if pd.isna(ma20) or pd.isna(ma60):
         trend = "样本不足，暂不能判断均线趋势"
     elif close > ma20 > ma60:
