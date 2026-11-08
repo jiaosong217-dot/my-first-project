@@ -126,7 +126,7 @@ def market_observation(frame: pd.DataFrame) -> str:
         f"MA60：{'N/A' if pd.isna(ma60) else f'{float(ma60):.4f}'}\n"
         f"RSI14：{rsi_text}\n"
         f"MACD：{float(latest['MACD']):.4f}\n"
-        f"ATR14：{'N/A' if pd.isna(latest['ATR14']) else f'{float(latest['ATR14']):.4f}'}\n"
+        f"ATR14：{'N/A' if pd.isna(atr) else f'{float(atr):.4f}'}\n"
         f"观察：{trend}\n"
         "这不是经过回测的交易信号，也不构成投资建议。"
     )
