@@ -15,3 +15,6 @@ data/
 .DS_Store
 .vscode/
 .idea/
+
+# Streamlit local state
+.streamlit/
