@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Local research data and outputs
+data/
+*.csv
+*.db
+*.sqlite3
+
+# Editors and OS
+.DS_Store
+.vscode/
+.idea/
