@@ -1,7 +1,7 @@
-"""Local Streamlit dashboard for Personal Quant.
+"""Personal Quant local dashboard: concise BTC/ETH long/short/wait decisions.
 
-Research interface only. No order execution. Signals are experimental rules,
-not proven profitable recommendations.
+Runs locally with public Binance USD-M Futures data. No account connection,
+no API secrets, and no order execution. Signals are experimental rules.
 """
 from __future__ import annotations
 
@@ -9,202 +9,163 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from quant_system.signals import (
-    FRAMES, SYMBOLS, get_klines, indicators, classify_trend
-)
+from quant_system.now import inspect, SYMBOLS
+from quant_system.signals import FRAMES, get_klines, indicators, classify_trend
 
 st.set_page_config(
-    page_title="Personal Quant | Crypto Research",
-    page_icon="📈",
+    page_title="Personal Quant | 多空信号",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 st.markdown("""
 <style>
-.block-container {padding-top: 1.2rem; padding-bottom: 2rem;}
-[data-testid="stMetric"] {background: #111827; border: 1px solid #263244;
+.block-container {padding-top: 1.1rem; padding-bottom: 2rem; max-width: 1500px;}
+[data-testid="stMetric"] {background: #111827; border: 1px solid #293548;
     padding: 12px 16px; border-radius: 12px;}
-.signal-card {padding: 18px; border-radius: 14px; border: 1px solid #334155;
-    background: #111827; min-height: 150px;}
-.small-muted {color: #94a3b8; font-size: 0.85rem;}
+.signal {padding: 20px; border-radius: 14px; border: 1px solid #334155;
+    background: #111827; margin-bottom: 10px;}
+.signal h1 {margin: 0.15rem 0 0.4rem 0; font-size: 2rem;}
+.muted {color: #94a3b8; font-size: .86rem;}
 </style>
 """, unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def load_frame(symbol: str, interval: str, limit: int = 300) -> pd.DataFrame:
-    return indicators(get_klines(symbol, interval, limit))
+def get_decision(symbol: str):
+    return inspect(symbol)
 
 
-def signal_for(symbol: str, equity: float, risk_fraction: float, fee_percent: float):
-    frames = {tf: load_frame(symbol, tf, 300) for tf in FRAMES}
-    latest = {tf: data.iloc[-1] for tf, data in frames.items()}
-    regime_1d = classify_trend(latest["1d"])
-    regime_4h = classify_trend(latest["4h"])
-    hourly = latest["1h"]
-    trigger = latest["15m"]
-    direction = regime_1d if regime_1d == regime_4h and regime_1d != "NEUTRAL" else "WAIT"
-    reasons = [
-        f"日线趋势：{regime_1d}",
-        f"4小时趋势：{regime_4h}",
-    ]
-    if direction == "LONG":
-        h_ok = hourly["close"] > hourly["ema50"] and 45 <= hourly["rsi"] <= 68
-        t_ok = (
-            trigger["close"] > trigger["prior_high20"]
-            and trigger["volume"] > 1.2 * trigger["vol_sma20"]
-            and trigger["macd_hist"] > 0
-            and 50 <= trigger["rsi"] <= 75
-        )
-        reasons += [f"1小时趋势过滤：{'通过' if h_ok else '未通过'}",
-                    f"15分钟向上突破与成交量确认：{'通过' if t_ok else '未通过'}"]
-        if not (h_ok and t_ok):
-            direction = "WAIT"
-    elif direction == "SHORT":
-        h_ok = hourly["close"] < hourly["ema50"] and 32 <= hourly["rsi"] <= 55
-        t_ok = (
-            trigger["close"] < trigger["prior_low20"]
-            and trigger["volume"] > 1.2 * trigger["vol_sma20"]
-            and trigger["macd_hist"] < 0
-            and 25 <= trigger["rsi"] <= 50
-        )
-        reasons += [f"1小时趋势过滤：{'通过' if h_ok else '未通过'}",
-                    f"15分钟向下跌破与成交量确认：{'通过' if t_ok else '未通过'}"]
-        if not (h_ok and t_ok):
-            direction = "WAIT"
-    else:
-        reasons.append("日线与4小时方向未一致，暂不产生方向信号")
-
-    entry = float(trigger["close"])
-    atr = float(trigger["atr"])
-    stop_distance = 1.5 * atr if pd.notna(atr) and atr > 0 else None
-    plan = None
-    if direction in ("LONG", "SHORT") and stop_distance:
-        stop = entry - stop_distance if direction == "LONG" else entry + stop_distance
-        target = entry + 2 * stop_distance if direction == "LONG" else entry - 2 * stop_distance
-        risk_cash = equity * risk_fraction
-        qty = risk_cash / stop_distance
-        notional = qty * entry
-        fee_est = notional * (fee_percent / 100) * 2
-        plan = {
-            "entry": entry, "stop": stop, "target": target, "risk_cash": risk_cash,
-            "qty": qty, "notional": notional, "fee": fee_est,
-        }
-    return direction, reasons, frames, plan
+@st.cache_data(ttl=60, show_spinner=False)
+def get_chart_frame(symbol: str, interval: str):
+    return indicators(get_klines(symbol, interval, limit=500))
 
 
-def fmt_price(value):
-    return "—" if value is None else f"{value:,.4f}"
+def fmt(value):
+    return "—" if value is None else f"{value:,.2f}"
 
 
-st.title("📈 Personal Quant")
-st.caption("AI 加密货币量化研究系统 · BTC / ETH · 多周期信号 · 本地运行")
+st.title("📊 Personal Quant")
+st.caption("BTC / ETH · USDT 永续 · 多周期技术分析 · 做多 / 做空 / 观望")
 with st.sidebar:
     st.header("研究设置")
-    symbols = st.multiselect("交易标的", list(SYMBOLS), default=list(SYMBOLS))
+    selected = st.multiselect("交易标的", list(SYMBOLS), default=list(SYMBOLS))
+    st.divider()
     equity = st.number_input("模拟账户权益（USDT）", min_value=10.0, value=1000.0, step=100.0)
-    risk_pct = st.slider("单笔风险预算（权益比例）", min_value=0.1, max_value=2.0, value=0.5, step=0.1) / 100
-    fee_pct = st.number_input("单边手续费假设（%）", min_value=0.0, value=0.05, step=0.01, format="%.3f")
-    st.caption("费率请按你实际交易所等级修改。当前只展示研究结果，不会下单。")
-    refresh = st.button("↻ 刷新行情", use_container_width=True)
-    if refresh:
+    risk_percent = st.slider("单笔风险预算（%）", 0.1, 2.0, 0.5, 0.1)
+    st.caption("仓位估算只按止损距离计算，不包含杠杆、强平、资金费和滑点。")
+    if st.button("↻ 重新检查行情", use_container_width=True):
         st.cache_data.clear()
+        st.rerun()
+    st.caption("每次打开或刷新时重新读取已收盘K线；不是后台持续监控。")
 
-st.info("研究提示：这里的 LONG / SHORT / WAIT 是一组待验证的规则输出，不代表已证明盈利。所有数据来自公开永续合约行情；未连接交易账户。")
+st.warning("这是实验性规则信号，不是已证明盈利的策略。数据失败或不完整时会显示“无法判断”，不会猜测方向。")
 
-tabs = st.tabs(["交易信号", "多周期分析", "风险计划", "系统说明"])
-if not symbols:
-    st.warning("请在左侧至少选择 BTCUSDT 或 ETHUSDT。")
-else:
-    results = {}
-    with st.spinner("正在获取公开行情并计算多周期条件…"):
-        for symbol in symbols:
-            try:
-                results[symbol] = signal_for(symbol, equity, risk_pct, fee_pct)
-            except Exception as exc:
-                st.error(f"{symbol} 数据获取失败：{exc}")
+if not selected:
+    st.info("请在左侧选择 BTCUSDT 或 ETHUSDT。")
+    st.stop()
 
-    with tabs[0]:
-        st.subheader("当前研究信号")
-        cols = st.columns(len(symbols))
-        for col, symbol in zip(cols, symbols):
-            if symbol not in results:
-                continue
-            direction, reasons, frames, plan = results[symbol]
-            with col:
-                label = {"LONG": "🟢 做多 LONG", "SHORT": "🔴 做空 SHORT", "WAIT": "🟡 观望 WAIT"}[direction]
-                st.markdown(f'<div class="signal-card"><h3>{symbol} 永续</h3><h2>{label}</h2><p class="small-muted">最近已收盘 15 分钟 K 线：{frames["15m"].index[-1]}</p></div>', unsafe_allow_html=True)
-                st.metric("参考价格", fmt_price(float(frames["15m"].iloc[-1]["close"])))
-                st.markdown("**信号条件检查**")
-                for reason in reasons:
-                    st.write("• " + reason)
-                if plan:
-                    st.markdown("**风险参考（不是下单指令）**")
-                    st.write(f"止损参考：{fmt_price(plan['stop'])}")
-                    st.write(f"2R 目标参考：{fmt_price(plan['target'])}")
-                else:
-                    st.caption("当前规则没有产生完整入场条件，因此不提供仓位建议。")
+decisions = {}
+with st.spinner("正在检查 BTC / ETH 四个周期的最新已收盘K线…"):
+    for symbol in selected:
+        decisions[symbol] = get_decision(symbol)
 
-    with tabs[1]:
-        st.subheader("多周期趋势与指标")
-        for symbol in symbols:
-            if symbol not in results:
-                continue
-            direction, reasons, frames, plan = results[symbol]
-            st.markdown(f"### {symbol}")
-            rows = []
+st.subheader("当前判断")
+cols = st.columns(len(selected))
+labels = {
+    "LONG": ("🟢 做多", "success"),
+    "SHORT": ("🔴 做空", "error"),
+    "WAIT": ("🟡 观望", "warning"),
+    "UNAVAILABLE": ("⚪ 无法判断", "secondary"),
+}
+for col, symbol in zip(cols, selected):
+    d = decisions[symbol]
+    label, color = labels[d.state]
+    with col:
+        st.markdown(
+            f'<div class="signal"><div class="muted">{symbol} · USDT 永续</div>'
+            f'<h1>{label}</h1><div>{d.reason}</div></div>',
+            unsafe_allow_html=True,
+        )
+        if d.closed_at is not None:
+            st.caption(f"信号依据：已收盘15分钟K线 {d.closed_at.strftime('%Y-%m-%d %H:%M UTC')}")
+            st.caption(f"本次信号有效观察至：{d.expires_at.strftime('%Y-%m-%d %H:%M UTC')}，之后应重新计算")
+        if d.state in ("LONG", "SHORT"):
+            a, b, c = st.columns(3)
+            a.metric("参考入场", fmt(d.entry))
+            b.metric("止损参考", fmt(d.stop))
+            c.metric("2R目标参考", fmt(d.target))
+            risk_cash = equity * risk_percent / 100
+            distance = abs(d.entry - d.stop)
+            quantity = risk_cash / distance if distance > 0 else 0
+            st.write(f"按风险预算估算数量：**{quantity:.6f} {symbol.replace('USDT','')}**")
+            st.caption(f"风险预算约 {risk_cash:.2f} USDT；未计算杠杆、手续费、滑点、资金费及强平风险。")
+        else:
+            st.caption("没有经过完整条件确认的入场计划，不提供仓位估算。")
+
+tab_signal, tab_chart, tab_logic = st.tabs(["多空结论", "多周期图表", "判断规则"])
+with tab_signal:
+    for symbol, d in decisions.items():
+        st.markdown(f"**{symbol} — {labels[d.state][0]}**")
+        st.write(d.reason)
+        if d.state == "UNAVAILABLE":
+            st.error("行情或数据质量检查未通过。请刷新，若持续失败请检查网络/交易所接口。")
+        st.divider()
+
+with tab_chart:
+    interval = st.selectbox("图表周期", ["15m", "1h", "4h", "1d"], index=1)
+    for symbol in selected:
+        try:
+            frame = get_chart_frame(symbol, interval).tail(180)
+            latest = frame.iloc[-1]
+            trend_rows = []
             for tf in FRAMES:
-                row = frames[tf].iloc[-1]
-                rows.append({
+                # The chart tab requests each timeframe independently for a readable status table.
+                dframe = get_chart_frame(symbol, tf)
+                row = dframe.iloc[-1]
+                trend_rows.append({
                     "周期": tf,
-                    "最新收盘价": row["close"],
-                    "EMA50": row["ema50"],
-                    "EMA200": row["ema200"],
-                    "RSI14": row["rsi"],
-                    "MACD柱": row["macd_hist"],
-                    "趋势分类": classify_trend(row),
+                    "收盘价": float(row["close"]),
+                    "EMA50": float(row["ema50"]),
+                    "EMA200": float(row["ema200"]),
+                    "RSI14": float(row["rsi"]),
+                    "MACD柱": float(row["macd_hist"]),
+                    "趋势": classify_trend(row),
                 })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-            chart_data = frames["1h"].tail(120)
+            st.markdown(f"### {symbol}")
+            st.dataframe(pd.DataFrame(trend_rows), use_container_width=True, hide_index=True)
             fig = go.Figure()
             fig.add_trace(go.Candlestick(
-                x=chart_data.index, open=chart_data["open"], high=chart_data["high"],
-                low=chart_data["low"], close=chart_data["close"], name="K线"
+                x=frame.index, open=frame["open"], high=frame["high"],
+                low=frame["low"], close=frame["close"], name="K线"
             ))
-            fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data["ema50"], name="EMA50"))
-            fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data["ema200"], name="EMA200"))
+            fig.add_trace(go.Scatter(x=frame.index, y=frame["ema50"], name="EMA50"))
+            fig.add_trace(go.Scatter(x=frame.index, y=frame["ema200"], name="EMA200"))
             fig.update_layout(
-                title=f"{symbol} · 1小时K线（最近120根）",
+                title=f"{symbol} · {interval} K线与均线",
                 height=430, template="plotly_dark", xaxis_rangeslider_visible=False,
                 margin=dict(l=10, r=10, t=45, b=10),
             )
             st.plotly_chart(fig, use_container_width=True)
+        except Exception as exc:
+            st.error(f"{symbol} 图表读取失败：{exc}")
 
-    with tabs[2]:
-        st.subheader("风险计划")
-        st.caption("仓位估算仅基于止损距离和风险预算；尚未校验交易所最小下单量、杠杆、保证金、强平价、滑点及资金费率。")
-        for symbol in symbols:
-            if symbol not in results:
-                continue
-            direction, reasons, frames, plan = results[symbol]
-            st.markdown(f"### {symbol} · {direction}")
-            if not plan:
-                st.write("没有完整信号，不建议根据本模块计算仓位。")
-                continue
-            a, b, c = st.columns(3)
-            a.metric("风险预算", f"{plan['risk_cash']:.2f} USDT")
-            b.metric("止损距离", fmt_price(abs(plan["entry"] - plan["stop"])))
-            c.metric("估算名义仓位", f"{plan['notional']:.2f} USDT")
-            st.write(f"估算数量：{plan['qty']:.8f} {symbol.replace('USDT', '')}")
-            st.write(f"往返手续费估算：{plan['fee']:.4f} USDT（不含滑点）")
+with tab_logic:
+    st.markdown("""
+### 当前版本的规则逻辑
 
-    with tabs[3]:
-        st.subheader("系统边界与开发路线")
-        st.markdown("""
-- **已具备：** 公开永续合约K线、多周期 EMA/MACD/RSI/ATR 计算、规则信号原型。
-- **尚未具备：** 经过充分验证的盈利策略、真实成交模拟、资金费率完整建模、强平模型、自动下单。
-- **下一步：** 长历史数据分页、逐笔/盘口成本近似、样本外与滚动回测、模拟交易日志。
-- **安全：** 不需要交易所密钥，不连接资金账户，不执行订单。
-        """)
-        st.warning("不要把本界面的研究信号当成投资建议或保证盈利的买卖指令。")
+1. **日线与4小时**：EMA50 / EMA200 排列、收盘价位置和 MACD 柱方向共同判断大趋势。
+2. **1小时**：趋势位置与 RSI 区间过滤，避免大周期方向虽一致但入场位置不理想。
+3. **15分钟**：要求突破前20根已收盘K线高点/低点、成交量高于20根均量的1.2倍、MACD动量同向且 RSI 位于指定区间。
+4. 所有条件同向才输出 LONG 或 SHORT；否则 WAIT。行情缺失、过期或数据异常则 UNAVAILABLE。
+5. ATR(14) 的1.5倍用于止损参考，2R用于目标参考。
+
+### 重要限制
+
+- 这是第一套可检验的规则，不是 AI 已经找到的盈利策略。
+- 当前尚未完成足够长的永续合约历史回测、资金费率和滑点建模、样本外验证及模拟交易。
+- 不使用本界面的信号直接进行真实杠杆交易。
+- 页面不会自动下单，也不会持续后台监控。
+""")
+st.caption("Personal Quant · 本地研究工具 · 不构成投资建议")
