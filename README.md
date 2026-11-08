@@ -1,86 +1,73 @@
 # Personal Quant — 个人量化金融研究系统
 
-一个从零开始构建的个人量化研究平台。目标是逐步覆盖全球金融市场，整合行情数据、技术分析、基本面与宏观研究、策略回测和 AI 辅助研究。
+一个从零开始构建的个人量化研究平台。当前先研究 BTC/ETH 现货公开行情，逐步扩展到其他市场。项目用于学习、研究和模拟分析，不连接账户、不下单，也不保证盈利。
 
-> 当前阶段仅用于学习、研究和模拟分析。程序输出不是投资建议，不会连接交易所下单，也不会自动执行真实交易。
+## V1.0：BTC/ETH 多周期行情与技术指标
 
-## 当前版本：V1.0 起步
+数据源：Binance 官方公开 Spot Market Data 接口 `https://data-api.binance.vision`。获取公开 K 线不需要 API Key。接口或网络可能因地区、网络策略或服务限制而不可用。
 
-第一步先建立可运行的数据分析原型：
+支持标的：
+- `BTCUSDT`
+- `ETHUSDT`
 
-- 从公开行情数据源获取历史日线（当前示例使用 Yahoo Finance 的 `yfinance` 接口）
-- 计算 MA20、MA60 和 RSI14
-- 输出趋势观察和指标摘要
-- 将数据保存为 CSV，便于后续复核
+支持周期：
+- `15m`：15 分钟
+- `1h`：1 小时
+- `4h`：4 小时
+- `1d`：日线
 
-## 环境准备
+当前计算：
+- MA20、MA60
+- EMA12、EMA26
+- MACD、MACD Signal、MACD Histogram
+- RSI14
+- ATR14
 
-建议使用 Python 3.11 或更新版本。
+默认每次获取最近 500 根已收盘 K 线（可设置 50–1000 根），并导出到本地 `data/` 目录。注意：15 分钟 500 根只覆盖约 5 天，不能当作长期历史样本。
+
+## 安装
+
+建议 Python 3.11+。在项目根目录运行：
 
 ```bash
-python -m venv .venv
-```
-
-macOS / Linux 激活环境：
-
-```bash
+python3 -m venv .venv
 source .venv/bin/activate
-```
-
-Windows 激活环境：
-
-```powershell
-.venv\\Scripts\\Activate.ps1
-```
-
-安装依赖：
-
-```bash
 python -m pip install -r requirements.txt
 ```
 
-运行示例（SPY 为美国标普500 ETF，仅作数据演示）：
+## 运行
+
+先测试 BTC 1 小时：
 
 ```bash
-python -m quant_system.main --ticker SPY --period 1y
+python -m quant_system.main --symbol BTCUSDT --interval 1h --limit 500
 ```
 
-也可以尝试：
+测试 ETH 4 小时：
 
 ```bash
-python -m quant_system.main --ticker AAPL --period 2y
-python -m quant_system.main --ticker BTC-USD --period 1y
-python -m quant_system.main --ticker 0700.HK --period 1y
+python -m quant_system.main --symbol ETHUSDT --interval 4h --limit 500
 ```
 
-行情源的代码、交易时段、复权口径、数据延迟和可用性因市场而异。不同市场接入前必须验证数据质量与使用许可。
+一次运行 BTC、ETH 的四个周期（共 8 个公开请求）：
 
-## 项目结构
-
-```
-.
-├── quant_system/
-│   ├── __init__.py
-│   └── main.py
-├── data/                 # 本地导出的 CSV（不会提交）
-├── .gitignore
-├── requirements.txt
-└── README.md
+```bash
+python -m quant_system.main --all --limit 500
 ```
 
-## 研究纪律
+结果保存为 `data/BTCUSDT_1h.csv` 等 CSV 文件。该目录已加入 `.gitignore`，不会把本地行情文件提交到 GitHub。
 
-1. 不把单一指标当作交易决策。
-2. 回测必须计入手续费、滑点和合理成交假设。
-3. 避免未来函数、幸存者偏差和过拟合。
-4. 先做样本外验证和模拟跟踪，再讨论真实资金。
-5. 绝不将 API 密钥、密码或账户凭证提交到 GitHub。
+## 下一阶段
 
-## 后续路线
+1. 数据校验、缺失 K 线检测与历史分页下载
+2. 明确策略规则并实现无未来函数的回测
+3. 纳入手续费、滑点、资金费（若研究合约）和仓位风险
+4. 样本内/样本外及滚动验证，报告最大回撤、Profit Factor、Sharpe 等
+5. 模拟交易与人工确认信号
 
-- V1.0：行情获取、清洗、指标计算、CSV 导出
-- V1.1：多市场数据标准化与数据库
-- V1.2：宏观与基本面数据研究
-- V1.3：策略回测和风险指标
-- V1.4：AI 辅助研究报告
-- V2.0：可解释的模拟交易信号面板（人工确认下单）
+## 风险与数据纪律
+
+- 指标只是对历史价格的数学描述，不代表预测或买卖建议。
+- 历史回测结果不保证未来表现；必须防止未来函数、幸存者偏差、过拟合。
+- 不要把 API Key、Secret、密码或个人账户信息提交到仓库。
+- 当前程序仅请求公开行情，不含交易权限、账户连接或自动下单功能。
